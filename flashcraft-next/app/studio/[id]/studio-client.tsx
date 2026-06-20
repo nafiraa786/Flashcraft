@@ -774,8 +774,6 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
           setDevice={setDeviceState}
           activeTool={activeTool}
           setActiveTool={setActiveTool}
-          visualEdit={visualEdit}
-          setVisualEdit={setVisualEdit}
           showToast={showToast}
           activePreviewTab={activePreviewTab}
           setActivePreviewTab={setActivePreviewTab}
@@ -878,7 +876,7 @@ function CommandPalette({
             spellCheck="false"
             role="combobox"
             aria-autocomplete="list"
-            aria-expanded={isOpen}
+            aria-expanded={isOpen ? "true" : "false"}
             aria-controls="cmd-listbox"
             aria-activedescendant={
               filteredCommands[selectedIndex]
@@ -902,7 +900,7 @@ function CommandPalette({
                       key={cmd.action}
                       id={`cmd-item-${cmd.action}`}
                       role="option"
-                      aria-selected={globalIndex === selectedIndex}
+                      aria-selected={globalIndex === selectedIndex ? "true" : "false"}
                       className={`s-cmd-item ${globalIndex === selectedIndex ? "s-selected" : ""}`}
                       onClick={() => onSelectCommand(cmd.action)}
                     >
@@ -960,7 +958,7 @@ function Topbar({ projectName, mode, onModeChange, showToast }: TopbarProps) {
             key={m}
             className={`s-mode-btn ${mode === m ? "s-active" : ""}`}
             role="tab"
-            aria-selected={mode === m}
+            aria-selected={mode === m ? "true" : "false"}
             onClick={() => {
               onModeChange(m);
               showToast(`Switched to ${m} mode`, "info");
@@ -1148,8 +1146,6 @@ interface PreviewPaneProps {
   setDevice: (d: DeviceType) => void;
   activeTool: string;
   setActiveTool: (t: string) => void;
-  visualEdit: boolean;
-  setVisualEdit: (v: boolean) => void;
   showToast: (msg: string, type?: Toast["type"]) => void;
   activePreviewTab: string;
   setActivePreviewTab: (tab: string) => void;
@@ -1163,8 +1159,6 @@ function PreviewPane({
   setDevice,
   activeTool,
   setActiveTool,
-  visualEdit,
-  setVisualEdit,
   showToast,
   activePreviewTab,
   setActivePreviewTab,
