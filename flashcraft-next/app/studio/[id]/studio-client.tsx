@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "../studio.css";
 import { useWebContainer } from "../../../lib/webcontainer/useWebContainer";
 
 // ═══════════════════════════════════════════
-// TYPES
+// TYPES & CONSTANTS
 // ═══════════════════════════════════════════
 interface Toast {
   id: number;
@@ -22,6 +22,38 @@ interface Message {
   files?: { name: string; type: string; status: string; additions: number; deletions?: number; path: string }[];
   buildStatus?: string;
 }
+
+type ViewMode = "preview" | "code" | "files";
+type DeviceType = "desktop" | "tablet" | "mobile";
+
+const VIEW_MODES = {
+  PREVIEW: "preview" as ViewMode,
+  CODE: "code" as ViewMode,
+  FILES: "files" as ViewMode,
+} as const;
+
+const DEVICES = {
+  DESKTOP: "desktop" as DeviceType,
+  TABLET: "tablet" as DeviceType,
+  MOBILE: "mobile" as DeviceType,
+} as const;
+
+const AGENT_NAME = "FlashCraft";
+const MODEL_NAME = "gemini-2.5";
+
+const deviceSizes: Record<string, string> = {
+  desktop: "1280×720",
+  tablet: "768×1024",
+  mobile: "375×667",
+};
+
+const commands = [
+  { action: "deploy", name: "Deploy Project", desc: "Build and deploy to production", shortcut: "⌘⇧D", section: "Actions" },
+  { action: "preview", name: "Toggle Preview", desc: "Switch between preview and code", shortcut: "⌘⇧P", section: "Actions" },
+  { action: "chat", name: "New Chat", desc: "Start a new conversation", shortcut: "⌘⇧N", section: "Actions" },
+  { action: "theme", name: "Toggle Theme", desc: "Switch between light and dark", shortcut: "⌘⇧T", section: "Settings" },
+  { action: "settings", name: "Open Settings", desc: "Configure workspace preferences", shortcut: "⌘,", section: "Settings" },
+];
 
 // ═══════════════════════════════════════════
 // SVG ICON COMPONENTS
@@ -88,7 +120,6 @@ function IconGit() {
   );
 }
 
-// Keep other essential icons
 function IconShield() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -415,25 +446,6 @@ function formatTime() {
   });
 }
 
-const AGENT_NAME = "FlashCraft";
-const MODEL_NAME = "gemini-2.5";
-
-// Device sizes
-const deviceSizes: Record<string, string> = {
-  desktop: "1280×720",
-  tablet: "768×1024",
-  mobile: "375×667",
-};
-
-// Command palette items
-const commands = [
-  { action: "deploy", name: "Deploy Project", desc: "Build and deploy to production", shortcut: "⌘⇧D", section: "Actions" },
-  { action: "preview", name: "Toggle Preview", desc: "Switch between preview and code", shortcut: "⌘⇧P", section: "Actions" },
-  { action: "chat", name: "New Chat", desc: "Start a new conversation", shortcut: "⌘⇧N", section: "Actions" },
-  { action: "theme", name: "Toggle Theme", desc: "Switch between light and dark", shortcut: "⌘⇧T", section: "Settings" },
-  { action: "settings", name: "Open Settings", desc: "Configure workspace preferences", shortcut: "⌘,", section: "Settings" },
-];
-
 // ═══════════════════════════════════════════
 // MAIN WORKSPACE COMPONENT
 // ═══════════════════════════════════════════
@@ -446,10 +458,10 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [mode, setModeState] = useState<"preview" | "code" | "files">("preview");
+  const [mode, setModeState] = useState<ViewMode>(VIEW_MODES.PREVIEW);
   const [activeTree, setActiveTreeState] = useState("Explorer");
   const [activePreviewTab, setActivePreviewTab] = useState("Home");
-  const [device, setDeviceState] = useState("desktop");
+  const [device, setDeviceState] = useState<DeviceType>(DEVICES.DESKTOP);
   const [activeTool, setActiveTool] = useState("Cursor");
   const [visualEdit, setVisualEdit] = useState(false);
   const [chatInput, setChatInput] = useState("");
@@ -488,10 +500,13 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     }, 3000);
   }, []);
 
+  const closeToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   // ─── INITIAL PROMPT ───
   useEffect(() => {
     if (initialPrompt) {
-
       const timer = setTimeout(() => {
         setIsTyping(false);
         const aiMsg: Message = {
@@ -531,8 +546,6 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [messages, isTyping]);
-
-
 
   // ─── PANEL RESIZE ───
   useEffect(() => {
@@ -619,11 +632,15 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     document.body.style.userSelect = "none";
   }, [panelWidth]);
 
-  const filteredCommands = commands.filter(
-    (cmd) =>
-      cmd.name.toLowerCase().includes(cmdQuery.toLowerCase()) ||
-      cmd.desc.toLowerCase().includes(cmdQuery.toLowerCase())
-  );
+  // Memoized commands list
+  const filteredCommands = useMemo(() => {
+    const query = cmdQuery.toLowerCase();
+    return commands.filter(
+      (cmd) =>
+        cmd.name.toLowerCase().includes(query) ||
+        cmd.desc.toLowerCase().includes(query)
+    );
+  }, [cmdQuery]);
 
   const handleCommand = useCallback(
     (action: string) => {
@@ -635,7 +652,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
           setTimeout(() => showToast("Deployment successful!", "success"), 3000);
           break;
         case "preview":
-          setModeState("preview");
+          setModeState(VIEW_MODES.PREVIEW);
           showToast("Switched to preview mode", "info");
           break;
         case "chat":
@@ -677,6 +694,35 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     return () => window.removeEventListener("keydown", handler);
   }, [cmdOpen, chatInput, handleSend, toggleTheme]);
 
+  const handleCmdQueryChange = useCallback((val: string) => {
+    setCmdQuery(val);
+    setSelectedIndex(0);
+  }, []);
+
+  const handleCmdKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (filteredCommands.length > 0) {
+        setSelectedIndex((prev) => (prev + 1) % filteredCommands.length);
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (filteredCommands.length > 0) {
+        setSelectedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length);
+      }
+    } else if (e.key === "Enter" && filteredCommands.length > 0) {
+      e.preventDefault();
+      handleCommand(filteredCommands[selectedIndex].action);
+    }
+  }, [filteredCommands, selectedIndex, handleCommand]);
+
+  const handleChatKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [handleSend]);
+
   // Derive project name from prompt
   const projectName = initialPrompt
     ? initialPrompt.length > 30
@@ -686,94 +732,193 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
 
   return (
     <div className="studio-root" data-studio-theme={theme}>
-      {/* ═══ TOAST CONTAINER ═══ */}
-      <div className="s-toast-container" role="region" aria-label="Notifications">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`s-toast s-toast-${t.type}`}
-            role="alert"
-            onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
-          >
-            <div className="s-toast-icon">{toastIcons[t.type]}</div>
-            <span>{t.message}</span>
-          </div>
-        ))}
-      </div>
+      <ToastContainer toasts={toasts} onCloseToast={closeToast} />
 
-      {/* ═══ COMMAND PALETTE ═══ */}
-      <div
-        className={`s-cmd-palette-overlay ${cmdOpen ? "s-active" : ""}`}
-        role="dialog"
-        aria-label="Command palette"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            setCmdOpen(false);
-            setCmdQuery("");
-          }
-        }}
-      >
-        <div className="s-cmd-palette">
-          <div className="s-cmd-input-wrapper">
-            <IconSearch />
-            <input
-              ref={cmdInputRef}
-              type="text"
-              className="s-cmd-input"
-              placeholder="Search commands..."
-              value={cmdQuery}
-              onChange={(e) => {
-                setCmdQuery(e.target.value);
-                setSelectedIndex(0);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  if (filteredCommands.length > 0) {
-                    setSelectedIndex((prev) => (prev + 1) % filteredCommands.length);
-                  }
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  if (filteredCommands.length > 0) {
-                    setSelectedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length);
-                  }
-                } else if (e.key === "Enter" && filteredCommands.length > 0) {
-                  e.preventDefault();
-                  handleCommand(filteredCommands[selectedIndex].action);
-                }
-              }}
-              autoComplete="off"
-              spellCheck="false"
-            />
-            <span className="s-cmd-kbd">ESC</span>
-          </div>
+      <CommandPalette
+        isOpen={cmdOpen}
+        onClose={() => { setCmdOpen(false); setCmdQuery(""); }}
+        query={cmdQuery}
+        onQueryChange={handleCmdQueryChange}
+        filteredCommands={filteredCommands}
+        selectedIndex={selectedIndex}
+        onKeyDown={handleCmdKeyDown}
+        onSelectCommand={handleCommand}
+        inputRef={cmdInputRef}
+      />
+
+      <Topbar
+        projectName={projectName}
+        mode={mode}
+        onModeChange={setModeState}
+        showToast={showToast}
+      />
+
+      <AddressBar
+        visualEdit={visualEdit}
+        setVisualEdit={setVisualEdit}
+        showToast={showToast}
+      />
+
+      <div className="s-layout">
+        <Sidebar
+          activeTree={activeTree}
+          setActiveTree={setActiveTreeState}
+          showToast={showToast}
+        />
+
+        <PreviewPane
+          isBooted={isBooted}
+          url={url}
+          logs={logs}
+          device={device}
+          setDevice={setDeviceState}
+          activeTool={activeTool}
+          setActiveTool={setActiveTool}
+          visualEdit={visualEdit}
+          setVisualEdit={setVisualEdit}
+          showToast={showToast}
+          activePreviewTab={activePreviewTab}
+          setActivePreviewTab={setActivePreviewTab}
+        />
+
+        <ChatPanel
+          projectName={projectName}
+          panelWidth={panelWidth}
+          onMouseDownResize={startPanelResize}
+          showToast={showToast}
+          messages={messages}
+          isTyping={isTyping}
+          chatInput={chatInput}
+          onChatInputEv={setChatInput}
+          onKeyDownInput={handleChatKeyDown}
+          handleSend={handleSend}
+          chatScrollRef={chatScrollRef}
+          chatInputRef={chatInputRef}
+          panelRef={panelRef}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
+// SUB-COMPONENTS
+// ═══════════════════════════════════════════
+
+interface ToastContainerProps {
+  toasts: Toast[];
+  onCloseToast: (id: number) => void;
+}
+
+function ToastContainer({ toasts, onCloseToast }: ToastContainerProps) {
+  return (
+    <div className="s-toast-container" role="region" aria-label="Notifications">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`s-toast s-toast-${t.type}`}
+          role="alert"
+          onClick={() => onCloseToast(t.id)}
+        >
+          <div className="s-toast-icon">{toastIcons[t.type]}</div>
+          <span>{t.message}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface CommandPaletteProps {
+  isOpen: boolean;
+  onClose: () => void;
+  query: string;
+  onQueryChange: (q: string) => void;
+  filteredCommands: typeof commands;
+  selectedIndex: number;
+  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onSelectCommand: (action: string) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+}
+
+function CommandPalette({
+  isOpen,
+  onClose,
+  query,
+  onQueryChange,
+  filteredCommands,
+  selectedIndex,
+  onKeyDown,
+  onSelectCommand,
+  inputRef,
+}: CommandPaletteProps) {
+  return (
+    <div
+      className={`s-cmd-palette-overlay ${isOpen ? "s-active" : ""}`}
+      role="dialog"
+      aria-label="Command palette"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="s-cmd-palette">
+        <div className="s-cmd-input-wrapper">
+          <IconSearch />
+          <input
+            ref={inputRef}
+            type="text"
+            className="s-cmd-input"
+            placeholder="Search commands..."
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            onKeyDown={onKeyDown}
+            autoComplete="off"
+            spellCheck="false"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={isOpen}
+            aria-controls="cmd-listbox"
+            aria-activedescendant={
+              filteredCommands[selectedIndex]
+                ? `cmd-item-${filteredCommands[selectedIndex].action}`
+                : undefined
+            }
+          />
+          <span className="s-cmd-kbd">ESC</span>
+        </div>
+        <div id="cmd-listbox" role="listbox" aria-label="Commands">
           {["Actions", "Settings"].map((section) => {
             const items = filteredCommands.filter((c) => c.section === section);
             if (items.length === 0) return null;
             return (
-              <div className="s-cmd-section" key={section}>
-                <div className="s-cmd-section-label">{section}</div>
+              <div className="s-cmd-section" key={section} role="presentation">
+                <div className="s-cmd-section-label" role="presentation">{section}</div>
                 {items.map((cmd) => {
-                  const globalIndex = filteredCommands.findIndex(c => c.action === cmd.action);
+                  const globalIndex = filteredCommands.findIndex((c) => c.action === cmd.action);
                   return (
-                  <div
-                    key={cmd.action}
-                    className={`s-cmd-item ${globalIndex === selectedIndex ? "s-selected" : ""}`}
-                    onClick={() => handleCommand(cmd.action)}
-                  >
-                    <div className="s-cmd-item-icon">
-                      {cmd.action === "deploy" && <IconDeploy />}
-                      {cmd.action === "preview" && <IconPlay />}
-                      {cmd.action === "chat" && <IconChat />}
-                      {cmd.action === "theme" && <IconSun />}
-                      {cmd.action === "settings" && <IconSettings />}
+                    <div
+                      key={cmd.action}
+                      id={`cmd-item-${cmd.action}`}
+                      role="option"
+                      aria-selected={globalIndex === selectedIndex}
+                      className={`s-cmd-item ${globalIndex === selectedIndex ? "s-selected" : ""}`}
+                      onClick={() => onSelectCommand(cmd.action)}
+                    >
+                      <div className="s-cmd-item-icon">
+                        {cmd.action === "deploy" && <IconDeploy />}
+                        {cmd.action === "preview" && <IconPlay />}
+                        {cmd.action === "chat" && <IconChat />}
+                        {cmd.action === "theme" && <IconSun />}
+                        {cmd.action === "settings" && <IconSettings />}
+                      </div>
+                      <div className="s-cmd-item-info">
+                        <div className="s-cmd-item-name">{cmd.name}</div>
+                        <div className="s-cmd-item-desc">{cmd.desc}</div>
+                      </div>
+                      <span className="s-cmd-item-shortcut">{cmd.shortcut}</span>
                     </div>
-                    <div className="s-cmd-item-info">
-                      <div className="s-cmd-item-name">{cmd.name}</div>
-                      <div className="s-cmd-item-desc">{cmd.desc}</div>
-                    </div>
-                    <span className="s-cmd-item-shortcut">{cmd.shortcut}</span>
-                  </div>
                   );
                 })}
               </div>
@@ -781,531 +926,598 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
           })}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* ═══ TOP BAR ═══ */}
-      <header className="s-topbar" role="banner">
-        <div className="s-win-dots" role="group" aria-label="Window controls">
-          <div className="s-win-dot s-red" role="button" tabIndex={0} aria-label="Close window" onClick={() => showToast("Close window", "info")} />
-          <div className="s-win-dot s-yellow" role="button" tabIndex={0} aria-label="Minimize window" onClick={() => showToast("Minimize window", "info")} />
-          <div className="s-win-dot s-green" role="button" tabIndex={0} aria-label="Maximize window" onClick={() => showToast("Maximize window", "info")} />
-        </div>
+interface TopbarProps {
+  projectName: string;
+  mode: ViewMode;
+  onModeChange: (m: ViewMode) => void;
+  showToast: (msg: string, type?: Toast["type"]) => void;
+}
 
-        <div className="s-topbar-divider" aria-hidden="true" />
+function Topbar({ projectName, mode, onModeChange, showToast }: TopbarProps) {
+  return (
+    <header className="s-topbar" role="banner">
+      <div className="s-win-dots" role="group" aria-label="Window controls">
+        <div className="s-win-dot s-red" role="button" tabIndex={0} aria-label="Close window" onClick={() => showToast("Close window", "info")} />
+        <div className="s-win-dot s-yellow" role="button" tabIndex={0} aria-label="Minimize window" onClick={() => showToast("Minimize window", "info")} />
+        <div className="s-win-dot s-green" role="button" tabIndex={0} aria-label="Maximize window" onClick={() => showToast("Maximize window", "info")} />
+      </div>
 
-        <button className="s-project-select" aria-label="Select project">
-          <IconDashboard />
-          <span className="s-project-name">{projectName}</span>
-          <IconChevronDown />
-        </button>
+      <div className="s-topbar-divider" aria-hidden="true" />
 
-        <nav className="s-mode-toggle" role="tablist" aria-label="View mode">
-          {(["preview", "code", "files"] as const).map((m) => (
-            <button
-              key={m}
-              className={`s-mode-btn ${mode === m ? "s-active" : ""}`}
-              role="tab"
-              aria-selected={mode === m}
-              onClick={() => {
-                setModeState(m);
-                showToast(`Switched to ${m} mode`, "info");
-              }}
-            >
-              {m === "preview" && <IconPlay />}
-              {m === "code" && <IconCode />}
-              {m === "files" && <IconFile />}
-              {m.charAt(0).toUpperCase() + m.slice(1)}
-              <span className="s-mode-indicator" aria-hidden="true" />
-            </button>
-          ))}
-        </nav>
+      <button className="s-project-select" aria-label="Select project">
+        <IconDashboard />
+        <span className="s-project-name">{projectName}</span>
+        <IconChevronDown />
+      </button>
 
-        <div className="s-topbar-spacer" aria-hidden="true" />
-
-        <div className="s-topbar-right" role="group" aria-label="Toolbar actions">
-          <span className="s-pro-chip" role="button" tabIndex={0} onClick={() => showToast("Pro features unlocked", "success")}>
-            <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
-            PRO
-          </span>
-          <button className="s-tb-btn" onClick={() => showToast("Opening documentation...", "info")}>
-            <IconInfo />
-            <span>Docs</span>
-          </button>
-          <button className="s-tb-btn" onClick={() => showToast("Integrations panel opened", "info")}>
-            <IconDashboard />
-            <span>Integrations</span>
-          </button>
+      <nav className="s-mode-toggle" role="tablist" aria-label="View mode">
+        {(["preview", "code", "files"] as const).map((m) => (
           <button
-            className="s-tb-btn s-tb-btn-deploy"
+            key={m}
+            className={`s-mode-btn ${mode === m ? "s-active" : ""}`}
+            role="tab"
+            aria-selected={mode === m}
             onClick={() => {
-              showToast("Deploying project...", "info");
-              setTimeout(() => showToast("Deployment successful! Live at https://your-app.vercel.app", "success"), 3000);
+              onModeChange(m);
+              showToast(`Switched to ${m} mode`, "info");
             }}
           >
-            <IconDeploy />
-            <span>Deploy</span>
+            {m === "preview" && <IconPlay />}
+            {m === "code" && <IconCode />}
+            {m === "files" && <IconFile />}
+            {m.charAt(0).toUpperCase() + m.slice(1)}
+            <span className="s-mode-indicator" aria-hidden="true" />
           </button>
-          <div className="s-avatar" role="button" tabIndex={0} aria-label="User account" onClick={() => showToast("Account settings", "info")}>
-            US
-            <span className="s-avatar-status" aria-hidden="true" />
+        ))}
+      </nav>
+
+      <div className="s-topbar-spacer" aria-hidden="true" />
+
+      <div className="s-topbar-right" role="group" aria-label="Toolbar actions">
+        <span className="s-pro-chip" role="button" tabIndex={0} onClick={() => showToast("Pro features unlocked", "success")}>
+          <IconStar />
+          PRO
+        </span>
+        <button className="s-tb-btn" onClick={() => showToast("Opening documentation...", "info")}>
+          <IconInfo />
+          <span>Docs</span>
+        </button>
+        <button className="s-tb-btn" onClick={() => showToast("Integrations panel opened", "info")}>
+          <IconDashboard />
+          <span>Integrations</span>
+        </button>
+        <button
+          className="s-tb-btn s-tb-btn-deploy"
+          onClick={() => {
+            showToast("Deploying project...", "info");
+            setTimeout(() => showToast("Deployment successful! Live at https://your-app.vercel.app", "success"), 3000);
+          }}
+        >
+          <IconDeploy />
+          <span>Deploy</span>
+        </button>
+        <div className="s-avatar" role="button" tabIndex={0} aria-label="User account" onClick={() => showToast("Account settings", "info")}>
+          US
+          <span className="s-avatar-status" aria-hidden="true" />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+interface AddressBarProps {
+  visualEdit: boolean;
+  setVisualEdit: (v: boolean) => void;
+  showToast: (msg: string, type?: Toast["type"]) => void;
+}
+
+function AddressBar({ visualEdit, setVisualEdit, showToast }: AddressBarProps) {
+  return (
+    <nav className="s-addrbar" role="navigation" aria-label="Browser navigation">
+      <button className="s-nav-btn" aria-label="Go back" onClick={() => showToast("Navigated back", "info")}>
+        <IconArrowLeft />
+        <span className="s-nav-tooltip">Back</span>
+      </button>
+      <button className="s-nav-btn" aria-label="Go forward" disabled>
+        <IconArrowRight />
+        <span className="s-nav-tooltip">Forward</span>
+      </button>
+      <button className="s-nav-btn" aria-label="Reload page" onClick={() => showToast("Page reloaded", "success")}>
+        <IconRefresh />
+        <span className="s-nav-tooltip">Reload</span>
+      </button>
+
+      <div className="s-url-pill" role="textbox" aria-label="Address bar" tabIndex={0}>
+        <div className="s-secure-dot" aria-hidden="true" />
+        <span className="s-url-text">localhost</span>
+        <span className="s-url-sep">:</span>
+        <span className="s-port">3000</span>
+      </div>
+
+      <div className="s-addr-spacer" aria-hidden="true" />
+
+      <button
+        className={`s-addr-action ${visualEdit ? "s-active" : ""}`}
+        aria-label="Visual edit mode"
+        aria-pressed={visualEdit}
+        onClick={() => {
+          setVisualEdit(!visualEdit);
+          showToast(!visualEdit ? "Visual edit enabled" : "Visual edit disabled", "info");
+        }}
+      >
+        <IconResize />
+        <span>Visual Edit</span>
+      </button>
+      <button className="s-nav-btn" style={{ border: "1px solid var(--s-border)" }} aria-label="Copy URL" onClick={() => {
+        navigator.clipboard?.writeText("http://localhost:3000");
+        showToast("URL copied to clipboard", "success");
+      }}>
+        <IconCopy />
+        <span className="s-nav-tooltip">Copy URL</span>
+      </button>
+      <button className="s-nav-btn" style={{ border: "1px solid var(--s-border)" }} aria-label="Open in browser" onClick={() => showToast("Opened in new tab", "success")}>
+        <IconExternal />
+        <span className="s-nav-tooltip">Open in browser</span>
+      </button>
+    </nav>
+  );
+}
+
+interface SidebarProps {
+  activeTree: string;
+  setActiveTree: (tree: string) => void;
+  showToast: (msg: string, type?: Toast["type"]) => void;
+}
+
+function Sidebar({ activeTree, setActiveTree, showToast }: SidebarProps) {
+  return (
+    <aside className="s-file-tree" role="complementary" aria-label="File explorer">
+      {[
+        { icon: <IconFolder />, label: "Explorer", active: true },
+        { icon: <IconSearch />, label: "Search" },
+        { icon: <IconGit />, label: "Git", badge: 3 },
+      ].map((item) => (
+        <div
+          key={item.label}
+          className={`s-tree-icon ${activeTree === item.label ? "s-active" : ""}`}
+          role="button"
+          tabIndex={0}
+          aria-label={item.label}
+          onClick={() => {
+            setActiveTree(item.label);
+            showToast(`${item.label} panel opened`, "info");
+          }}
+        >
+          {item.icon}
+          {item.badge && <span className="s-tree-badge">{item.badge}</span>}
+          <span className="s-tree-tooltip">{item.label}</span>
+        </div>
+      ))}
+
+      <div className="s-tree-divider" aria-hidden="true" />
+
+      {[
+        { icon: <IconShield />, label: "Debug" },
+        { icon: <IconGrid />, label: "Extensions" },
+      ].map((item) => (
+        <div
+          key={item.label}
+          className={`s-tree-icon ${activeTree === item.label ? "s-active" : ""}`}
+          role="button"
+          tabIndex={0}
+          aria-label={item.label}
+          onClick={() => {
+            setActiveTree(item.label);
+            showToast(`${item.label} panel opened`, "info");
+          }}
+        >
+          {item.icon}
+          <span className="s-tree-tooltip">{item.label}</span>
+        </div>
+      ))}
+
+      <div style={{ flex: 1 }} aria-hidden="true" />
+      <div className="s-tree-divider" aria-hidden="true" />
+
+      <div
+        className={`s-tree-icon ${activeTree === "Settings" ? "s-active" : ""}`}
+        role="button"
+        tabIndex={0}
+        aria-label="Settings"
+        onClick={() => {
+          setActiveTree("Settings");
+          showToast("Settings panel opened", "info");
+        }}
+      >
+        <IconSettings />
+        <span className="s-tree-tooltip">Settings</span>
+      </div>
+    </aside>
+  );
+}
+
+interface PreviewPaneProps {
+  isBooted: boolean;
+  url: string | null;
+  logs: string[];
+  device: DeviceType;
+  setDevice: (d: DeviceType) => void;
+  activeTool: string;
+  setActiveTool: (t: string) => void;
+  visualEdit: boolean;
+  setVisualEdit: (v: boolean) => void;
+  showToast: (msg: string, type?: Toast["type"]) => void;
+  activePreviewTab: string;
+  setActivePreviewTab: (tab: string) => void;
+}
+
+function PreviewPane({
+  isBooted,
+  url,
+  logs,
+  device,
+  setDevice,
+  activeTool,
+  setActiveTool,
+  visualEdit,
+  setVisualEdit,
+  showToast,
+  activePreviewTab,
+  setActivePreviewTab,
+}: PreviewPaneProps) {
+  return (
+    <main className="s-preview" role="main" aria-label="Preview">
+      <div className="s-preview-glow" aria-hidden="true" />
+
+      <div className="s-preview-tabs" role="tablist" aria-label="Preview tabs">
+        {["Home", "About"].map((tab) => (
+          <button
+            key={tab}
+            className={`s-preview-tab ${activePreviewTab === tab ? "s-active" : ""}`}
+            role="tab"
+            aria-selected={activePreviewTab === tab}
+            onClick={() => setActivePreviewTab(tab)}
+          >
+            {tab === "Home" ? <IconHome /> : <IconInfo />}
+            {tab}
+            <span className="s-tab-close" role="button" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); showToast("Tab closed", "info"); }}>
+              <IconClose />
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="s-preview-content" id="preview-content">
+        {!isBooted && (
+          <div className="s-preview-empty" id="preview-empty">
+            <div className="s-preview-empty-icon" aria-hidden="true"><IconMonitor /></div>
+            <h3>Booting Environment...</h3>
+            <p>Initializing WebContainer and installing dependencies.</p>
+            <div className="s-preview-logs" style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#888', maxHeight: '100px', overflow: 'hidden', textAlign: 'left' }}>
+              {logs.slice(-3).map((log, i) => <div key={i}>{log}</div>)}
+            </div>
           </div>
+        )}
+        {isBooted && !url && (
+          <div className="s-preview-empty" id="preview-empty">
+            <div className="s-preview-empty-icon" aria-hidden="true"><IconMonitor /></div>
+            <h3>Starting Server...</h3>
+            <p>Running development server, please wait.</p>
+            <div className="s-preview-logs" style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#888', maxHeight: '100px', overflow: 'hidden', textAlign: 'left' }}>
+              {logs.slice(-3).map((log, i) => <div key={i}>{log}</div>)}
+            </div>
+          </div>
+        )}
+        {isBooted && url && (
+          <iframe
+            src={url}
+            className="s-preview-iframe"
+            title="Preview"
+            style={{ width: '100%', height: '100%', border: 'none', background: '#fff' }}
+            allow="cross-origin-isolated"
+          />
+        )}
+      </div>
+
+      <div className="s-device-indicator" aria-hidden="true">
+        <span>{device.charAt(0).toUpperCase() + device.slice(1)}</span>
+        <span>·</span>
+        <span>{deviceSizes[device]}</span>
+      </div>
+
+      <div className="s-float-toolbar" role="toolbar" aria-label="Preview tools">
+        {[
+          { icon: <IconCursor />, label: "Cursor", tool: true },
+          { icon: <IconChat />, label: "Comment", tool: true },
+        ].map((item) => (
+          <button
+            key={item.label}
+            className={`s-float-btn ${activeTool === item.label ? "s-active" : ""}`}
+            aria-label={`${item.label} tool`}
+            onClick={() => setActiveTool(item.label)}
+          >
+            {item.icon}
+            <span className="s-float-tooltip">{item.label}</span>
+          </button>
+        ))}
+
+        <div className="s-float-sep" aria-hidden="true" />
+
+        {[
+          { icon: <IconMonitor />, label: "Desktop", dev: DEVICES.DESKTOP },
+          { icon: <IconTablet />, label: "Tablet", dev: DEVICES.TABLET },
+          { icon: <IconMobile />, label: "Mobile", dev: DEVICES.MOBILE },
+        ].map((item) => (
+          <button
+            key={item.label}
+            className={`s-float-btn ${device === item.dev ? "s-active" : ""}`}
+            aria-label={`${item.label} view`}
+            onClick={() => {
+              setDevice(item.dev);
+              showToast(`Switched to ${item.label} view`, "info");
+            }}
+          >
+            {item.icon}
+            <span className="s-float-tooltip">{item.label}</span>
+          </button>
+        ))}
+
+        <div className="s-float-sep" aria-hidden="true" />
+
+        <button className="s-float-btn" aria-label="Preview settings" onClick={() => showToast("Preview settings", "info")}>
+          <IconSettings />
+          <span className="s-float-tooltip">Settings</span>
+        </button>
+      </div>
+    </main>
+  );
+}
+
+interface ChatPanelProps {
+  projectName: string;
+  panelWidth: number;
+  onMouseDownResize: (e: React.MouseEvent) => void;
+  showToast: (msg: string, type?: Toast["type"]) => void;
+  messages: Message[];
+  isTyping: boolean;
+  chatInput: string;
+  onChatInputEv: (val: string) => void;
+  onKeyDownInput: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  handleSend: () => void;
+  chatScrollRef: React.RefObject<HTMLDivElement | null>;
+  chatInputRef: React.RefObject<HTMLTextAreaElement | null>;
+  panelRef: React.RefObject<HTMLDivElement | null>;
+}
+
+function ChatPanel({
+  projectName,
+  panelWidth,
+  onMouseDownResize,
+  showToast,
+  messages,
+  isTyping,
+  chatInput,
+  onChatInputEv,
+  onKeyDownInput,
+  handleSend,
+  chatScrollRef,
+  chatInputRef,
+  panelRef,
+}: ChatPanelProps) {
+  return (
+    <aside
+      ref={panelRef}
+      className="s-panel"
+      role="complementary"
+      aria-label="Chat panel"
+      style={{ width: panelWidth }}
+    >
+      <div
+        className="s-panel-resize-handle"
+        aria-hidden="true"
+        onMouseDown={onMouseDownResize}
+      />
+
+      <header className="s-panel-head">
+        <div className="s-panel-head-left">
+          <button className="s-panel-title-btn" aria-label={`Current project: ${projectName}`}>
+            <span className="s-project-name">{projectName}</span>
+            <IconChevronDown />
+          </button>
+          <button className="s-add-tab-btn" aria-label="New chat" onClick={() => showToast("New chat started", "success")}>+</button>
+        </div>
+        <div className="s-panel-head-right">
+          <button className="s-panel-head-btn" aria-label="Chat history" onClick={() => showToast("Chat history", "info")}>
+            <IconClock />
+          </button>
+          <button className="s-panel-head-btn" aria-label="More options" onClick={() => showToast("More options", "info")}>
+            <IconDots />
+          </button>
         </div>
       </header>
 
-      {/* ═══ ADDRESS BAR ═══ */}
-      <nav className="s-addrbar" role="navigation" aria-label="Browser navigation">
-        <button className="s-nav-btn" aria-label="Go back" onClick={() => showToast("Navigated back", "info")}>
-          <IconArrowLeft />
-          <span className="s-nav-tooltip">Back</span>
+      <div className="s-panel-tabs" role="tablist" aria-label="Chat sessions">
+        <button className="s-panel-tab s-active" role="tab" aria-selected="true">
+          <span className="s-tab-status" aria-hidden="true" />
+          Main
         </button>
-        <button className="s-nav-btn" aria-label="Go forward" disabled>
-          <IconArrowRight />
-          <span className="s-nav-tooltip">Forward</span>
-        </button>
-        <button className="s-nav-btn" aria-label="Reload page" onClick={() => showToast("Page reloaded", "success")}>
-          <IconRefresh />
-          <span className="s-nav-tooltip">Reload</span>
-        </button>
+      </div>
 
-        <div className="s-url-pill" role="textbox" aria-label="Address bar" tabIndex={0}>
-          <div className="s-secure-dot" aria-hidden="true" />
-          <span className="s-url-text">localhost</span>
-          <span className="s-url-sep">:</span>
-          <span className="s-port">3000</span>
+      <div ref={chatScrollRef} className="s-chat-scroll" role="log" aria-label="Chat messages" aria-live="polite">
+        <div className="s-date-separator" aria-hidden="true">
+          <div className="s-date-separator-line" />
+          <span className="s-date-separator-label">Today</span>
+          <div className="s-date-separator-line" />
         </div>
 
-        <div className="s-addr-spacer" aria-hidden="true" />
-
-        <button
-          className={`s-addr-action ${visualEdit ? "s-active" : ""}`}
-          aria-label="Visual edit mode"
-          aria-pressed={visualEdit}
-          onClick={() => {
-            setVisualEdit(!visualEdit);
-            showToast(visualEdit ? "Visual edit disabled" : "Visual edit enabled", "info");
-          }}
-        >
-          <IconResize />
-          <span>Visual Edit</span>
-        </button>
-        <button className="s-nav-btn" style={{ border: "1px solid var(--s-border)" }} aria-label="Copy URL" onClick={() => {
-          navigator.clipboard?.writeText("http://localhost:3000");
-          showToast("URL copied to clipboard", "success");
-        }}>
-          <IconCopy />
-          <span className="s-nav-tooltip">Copy URL</span>
-        </button>
-        <button className="s-nav-btn" style={{ border: "1px solid var(--s-border)" }} aria-label="Open in browser" onClick={() => showToast("Opened in new tab", "success")}>
-          <IconExternal />
-          <span className="s-nav-tooltip">Open in browser</span>
-        </button>
-      </nav>
-
-      {/* ═══ MAIN LAYOUT ═══ */}
-      <div className="s-layout">
-        {/* ─── FILE TREE ─── */}
-        <aside className="s-file-tree" role="complementary" aria-label="File explorer">
-          {[
-            { icon: <IconFolder />, label: "Explorer", active: true },
-            { icon: <IconSearch />, label: "Search" },
-            { icon: <IconGit />, label: "Git", badge: 3 },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className={`s-tree-icon ${activeTree === item.label ? "s-active" : ""}`}
-              role="button"
-              tabIndex={0}
-              aria-label={item.label}
-              onClick={() => {
-                setActiveTreeState(item.label);
-                showToast(`${item.label} panel opened`, "info");
-              }}
-            >
-              {item.icon}
-              {item.badge && <span className="s-tree-badge">{item.badge}</span>}
-              <span className="s-tree-tooltip">{item.label}</span>
-            </div>
-          ))}
-
-          <div className="s-tree-divider" aria-hidden="true" />
-
-          {[
-            { icon: <IconShield />, label: "Debug" },
-            { icon: <IconGrid />, label: "Extensions" },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className={`s-tree-icon ${activeTree === item.label ? "s-active" : ""}`}
-              role="button"
-              tabIndex={0}
-              aria-label={item.label}
-              onClick={() => {
-                setActiveTreeState(item.label);
-                showToast(`${item.label} panel opened`, "info");
-              }}
-            >
-              {item.icon}
-              <span className="s-tree-tooltip">{item.label}</span>
-            </div>
-          ))}
-
-          <div style={{ flex: 1 }} aria-hidden="true" />
-          <div className="s-tree-divider" aria-hidden="true" />
-
-          <div
-            className={`s-tree-icon ${activeTree === "Settings" ? "s-active" : ""}`}
-            role="button"
-            tabIndex={0}
-            aria-label="Settings"
-            onClick={() => {
-              setActiveTreeState("Settings");
-              showToast("Settings panel opened", "info");
-            }}
-          >
-            <IconSettings />
-            <span className="s-tree-tooltip">Settings</span>
-          </div>
-        </aside>
-
-        {/* ─── PREVIEW PANE ─── */}
-        <main className="s-preview" role="main" aria-label="Preview">
-          <div className="s-preview-glow" aria-hidden="true" />
-
-          <div className="s-preview-tabs" role="tablist" aria-label="Preview tabs">
-            {["Home", "About"].map((tab) => (
-              <button
-                key={tab}
-                className={`s-preview-tab ${activePreviewTab === tab ? "s-active" : ""}`}
-                role="tab"
-                aria-selected={activePreviewTab === tab}
-                onClick={() => setActivePreviewTab(tab)}
-              >
-                {tab === "Home" ? <IconHome /> : <IconInfo />}
-                {tab}
-                <span className="s-tab-close" role="button" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); showToast("Tab closed", "info"); }}>
-                  <IconClose />
-                </span>
-              </button>
-            ))}
-          </div>
-
-          <div className="s-preview-content" id="preview-content">
-            {!isBooted && (
-               <div className="s-preview-empty" id="preview-empty">
-                 <div className="s-preview-empty-icon" aria-hidden="true"><IconMonitor /></div>
-                 <h3>Booting Environment...</h3>
-                 <p>Initializing WebContainer and installing dependencies.</p>
-                 <div className="s-preview-logs" style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#888', maxHeight: '100px', overflow: 'hidden', textAlign: 'left' }}>
-                    {logs.slice(-3).map((log, i) => <div key={i}>{log}</div>)}
-                 </div>
-               </div>
-            )}
-            {isBooted && !url && (
-               <div className="s-preview-empty" id="preview-empty">
-                 <div className="s-preview-empty-icon" aria-hidden="true"><IconMonitor /></div>
-                 <h3>Starting Server...</h3>
-                 <p>Running development server, please wait.</p>
-                 <div className="s-preview-logs" style={{ marginTop: '1rem', fontSize: '0.8rem', color: '#888', maxHeight: '100px', overflow: 'hidden', textAlign: 'left' }}>
-                    {logs.slice(-3).map((log, i) => <div key={i}>{log}</div>)}
-                 </div>
-               </div>
-            )}
-            {isBooted && url && (
-               <iframe
-                 src={url}
-                 className="s-preview-iframe"
-                 title="Preview"
-                 style={{ width: '100%', height: '100%', border: 'none', background: '#fff' }}
-                 allow="cross-origin-isolated"
-               />
-            )}
-          </div>
-
-          <div className="s-device-indicator" aria-hidden="true">
-            <span>{device.charAt(0).toUpperCase() + device.slice(1)}</span>
-            <span>·</span>
-            <span>{deviceSizes[device]}</span>
-          </div>
-
-          <div className="s-float-toolbar" role="toolbar" aria-label="Preview tools">
-            {[
-              { icon: <IconCursor />, label: "Cursor", tool: true },
-              { icon: <IconChat />, label: "Comment", tool: true },
-            ].map((item) => (
-              <button
-                key={item.label}
-                className={`s-float-btn ${activeTool === item.label ? "s-active" : ""}`}
-                aria-label={`${item.label} tool`}
-                onClick={() => setActiveTool(item.label)}
-              >
-                {item.icon}
-                <span className="s-float-tooltip">{item.label}</span>
-              </button>
-            ))}
-
-            <div className="s-float-sep" aria-hidden="true" />
-
-            {[
-              { icon: <IconMonitor />, label: "Desktop", dev: "desktop" },
-              { icon: <IconTablet />, label: "Tablet", dev: "tablet" },
-              { icon: <IconMobile />, label: "Mobile", dev: "mobile" },
-            ].map((item) => (
-              <button
-                key={item.label}
-                className={`s-float-btn ${device === item.dev ? "s-active" : ""}`}
-                aria-label={`${item.label} view`}
-                onClick={() => {
-                  setDeviceState(item.dev);
-                  showToast(`Switched to ${item.label} view`, "info");
-                }}
-              >
-                {item.icon}
-                <span className="s-float-tooltip">{item.label}</span>
-              </button>
-            ))}
-
-            <div className="s-float-sep" aria-hidden="true" />
-
-            <button className="s-float-btn" aria-label="Preview settings" onClick={() => showToast("Preview settings", "info")}>
-              <IconSettings />
-              <span className="s-float-tooltip">Settings</span>
-            </button>
-          </div>
-        </main>
-
-        {/* ─── RIGHT PANEL ─── */}
-        <aside
-          ref={panelRef}
-          className="s-panel"
-          role="complementary"
-          aria-label="Chat panel"
-          style={{ width: panelWidth }}
-        >
-          <div
-            className="s-panel-resize-handle"
-            aria-hidden="true"
-            onMouseDown={startPanelResize}
-          />
-
-          {/* Panel header */}
-          <header className="s-panel-head">
-            <div className="s-panel-head-left">
-              <button className="s-panel-title-btn" aria-label={`Current project: ${projectName}`}>
-                <span className="s-project-name">{projectName}</span>
-                <IconChevronDown />
-              </button>
-              <button className="s-add-tab-btn" aria-label="New chat" onClick={() => showToast("New chat started", "success")}>+</button>
-            </div>
-            <div className="s-panel-head-right">
-              <button className="s-panel-head-btn" aria-label="Chat history" onClick={() => showToast("Chat history", "info")}>
-                <IconClock />
-              </button>
-              <button className="s-panel-head-btn" aria-label="More options" onClick={() => showToast("More options", "info")}>
-                <IconDots />
-              </button>
-            </div>
-          </header>
-
-          {/* Panel tabs */}
-          <div className="s-panel-tabs" role="tablist" aria-label="Chat sessions">
-            <button className="s-panel-tab s-active" role="tab" aria-selected="true">
-              <span className="s-tab-status" aria-hidden="true" />
-              Main
-            </button>
-          </div>
-
-          {/* Chat scroll area */}
-          <div ref={chatScrollRef} className="s-chat-scroll" role="log" aria-label="Chat messages" aria-live="polite">
-            {/* Date separator */}
-            <div className="s-date-separator" aria-hidden="true">
-              <div className="s-date-separator-line" />
-              <span className="s-date-separator-label">Today</span>
-              <div className="s-date-separator-line" />
-            </div>
-
-            {/* Messages */}
-            {messages.map((msg) => (
-              <div key={msg.id}>
-                {msg.role === "user" ? (
-                  <div className="s-message-group s-user-message" role="article" aria-label="Your message">
-                    <div className="s-user-bubble">{msg.content}</div>
-                    <div className="s-user-meta">
-                      <span className="s-user-name">You</span>
-                      <span>·</span>
-                      <span>{msg.time}</span>
-                    </div>
+        {messages.map((msg) => (
+          <div key={msg.id}>
+            {msg.role === "user" ? (
+              <div className="s-message-group s-user-message" role="article" aria-label="Your message">
+                <div className="s-user-bubble">{msg.content}</div>
+                <div className="s-user-meta">
+                  <span className="s-user-name">You</span>
+                  <span>·</span>
+                  <span>{msg.time}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="s-message-group s-ai-message" role="article" aria-label="AI response">
+                <div className="s-ai-label">
+                  <div className="s-ai-avatar" aria-hidden="true">
+                    <IconStar />
                   </div>
-                ) : (
-                  <div className="s-message-group s-ai-message" role="article" aria-label="AI response">
-                    <div className="s-ai-label">
-                      <div className="s-ai-avatar" aria-hidden="true">
-                        <IconStar />
-                      </div>
-                      <span className="s-ai-name">{AGENT_NAME}</span>
-                      <span className="s-ai-model">{MODEL_NAME}</span>
-                      <span className="s-ai-time">{msg.time}</span>
+                  <span className="s-ai-name">{AGENT_NAME}</span>
+                  <span className="s-ai-model">{MODEL_NAME}</span>
+                  <span className="s-ai-time">{msg.time}</span>
+                </div>
+
+                {msg.thought && <ThoughtBlock thought={msg.thought} />}
+
+                <div className="s-chat-bubble">{msg.content}</div>
+
+                {msg.files?.map((file) => (
+                  <div
+                    key={file.name}
+                    className="s-file-card"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View file: ${file.name}`}
+                    onClick={() => showToast(`Opening ${file.name}`, "info")}
+                  >
+                    <div className={`s-file-card-icon ${file.type === "ts" ? "s-ts" : "s-css"}`} aria-hidden="true">
+                      {file.type === "ts" ? <IconFileTsPlus /> : <IconFilePlus />}
                     </div>
-
-                    {/* Thought block */}
-                    {msg.thought && (
-                      <ThoughtBlock thought={msg.thought} />
-                    )}
-
-                    {/* Chat bubble */}
-                    <div className="s-chat-bubble">{msg.content}</div>
-
-                    {/* File cards */}
-                    {msg.files?.map((file) => (
-                      <div
-                        key={file.name}
-                        className="s-file-card"
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`View file: ${file.name}`}
-                        onClick={() => showToast(`Opening ${file.name}`, "info")}
-                      >
-                        <div className={`s-file-card-icon ${file.type === "ts" ? "s-ts" : "s-css"}`} aria-hidden="true">
-                          {file.type === "ts" ? <IconFileTsPlus /> : <IconFilePlus />}
-                        </div>
-                        <div className="s-file-card-info">
-                          <div className="s-file-card-name">{file.name}</div>
-                          <div className="s-file-card-meta">
-                            <span className={`s-file-status ${file.status === "new" ? "s-new" : "s-modified"}`}>{file.status}</span>
-                            {file.path}
-                          </div>
-                        </div>
-                        <span className="s-file-diff-badge">+{file.additions}</span>
-                        {!!file.deletions && <span className="s-file-diff-badge s-negative">-{file.deletions}</span>}
-                        <svg className="s-file-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+                    <div className="s-file-card-info">
+                      <div className="s-file-card-name">{file.name}</div>
+                      <div className="s-file-card-meta">
+                        <span className={`s-file-status ${file.status === "new" ? "s-new" : "s-modified"}`}>{file.status}</span>
+                        {file.path}
                       </div>
-                    ))}
-
-                    {/* Build status */}
-                    {msg.buildStatus && (
-                      <div className="s-status-row" role="status">
-                        <div className="s-status-dot" aria-hidden="true" />
-                        <span className="s-status-text">
-                          {msg.buildStatus.split(" — ")[0]}{" "}
-                          <span className="s-status-detail">— {msg.buildStatus.split(" — ")[1]}</span>
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Message actions */}
-                    <div className="s-message-actions" role="group" aria-label="Message actions">
-                      <button className="s-msg-action-btn" onClick={() => showToast("Message copied", "success")}>
-                        <IconCopy /> Copy
-                      </button>
-                      <button className="s-msg-action-btn" onClick={() => showToast("Regenerating...", "info")}>
-                        <IconRefresh /> Regenerate
-                      </button>
-                      <button className="s-msg-action-btn" onClick={() => showToast("Feedback sent", "success")}>
-                        <IconThumbsUp /> Like
-                      </button>
                     </div>
+                    <span className="s-file-diff-badge">+{file.additions}</span>
+                    {!!file.deletions && <span className="s-file-diff-badge s-negative">-{file.deletions}</span>}
+                    <svg className="s-file-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+                  </div>
+                ))}
+
+                {msg.buildStatus && (
+                  <div className="s-status-row" role="status">
+                    <div className="s-status-dot" aria-hidden="true" />
+                    <span className="s-status-text">
+                      {msg.buildStatus.split(" — ")[0]}{" "}
+                      <span className="s-status-detail">— {msg.buildStatus.split(" — ")[1]}</span>
+                    </span>
                   </div>
                 )}
-              </div>
-            ))}
 
-            {/* Typing indicator */}
-            {isTyping && (
-              <div className="s-typing-indicator" role="status" aria-label="AI is typing">
-                <div className="s-typing-dots" aria-hidden="true">
-                  <div className="s-typing-dot" />
-                  <div className="s-typing-dot" />
-                  <div className="s-typing-dot" />
+                <div className="s-message-actions" role="group" aria-label="Message actions">
+                  <button className="s-msg-action-btn" onClick={() => showToast("Message copied", "success")}>
+                    <IconCopy /> Copy
+                  </button>
+                  <button className="s-msg-action-btn" onClick={() => showToast("Regenerating...", "info")}>
+                    <IconRefresh /> Regenerate
+                  </button>
+                  <button className="s-msg-action-btn" onClick={() => showToast("Feedback sent", "success")}>
+                    <IconThumbsUp /> Like
+                  </button>
                 </div>
-                <span className="s-typing-text">{AGENT_NAME} is thinking...</span>
               </div>
             )}
           </div>
+        ))}
 
-          {/* Input zone */}
-          <div className="s-input-zone" role="form" aria-label="Message input">
-            {/* Context chips */}
-            {messages.some((m) => m.files) && (
-              <div className="s-context-chips" role="group" aria-label="Context attachments">
-                {messages
-                  .filter((m) => m.files)
-                  .flatMap((m) => m.files || [])
-                  .slice(-3)
-                  .map((file) => (
-                    <button key={file.name} className="s-ctx-chip s-active" role="button">
-                      <IconFilePlus />
-                      {file.name}
-                    </button>
-                  ))}
-              </div>
-            )}
-
-            {/* Input box */}
-            <div className="s-input-box">
-              <textarea
-                ref={chatInputRef}
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-                placeholder={`Tell ${AGENT_NAME} what to build...`}
-                rows={1}
-                autoComplete="off"
-                spellCheck="false"
-                aria-label="Message input"
-              />
-              <div className="s-input-actions">
-                <div className="s-input-actions-left">
-                  <button className="s-ia-btn" aria-label="Attach file" onClick={() => showToast("File picker opened", "info")}>
-                    <IconAttach />
-                    <span className="s-ia-tooltip">Attach file</span>
-                  </button>
-                  <button className="s-ia-btn" aria-label="Screenshot" onClick={() => showToast("Screenshot captured", "success")}>
-                    <IconImage />
-                    <span className="s-ia-tooltip">Screenshot</span>
-                  </button>
-                  <div className="s-input-divider" aria-hidden="true" />
-                  <button className="s-model-pill" aria-label="Switch AI model">
-                    <span className="s-model-indicator" aria-hidden="true" />
-                    {MODEL_NAME}
-                    <IconChevronDown />
-                  </button>
-                </div>
-                <div className="s-input-actions-right">
-                  <button className="s-ia-btn" aria-label="Insert template" onClick={() => showToast("Template gallery opened", "info")}>
-                    <IconTemplate />
-                    <span className="s-ia-tooltip">Template</span>
-                  </button>
-                  <button
-                    className="s-send-btn"
-                    aria-label="Send message"
-                    disabled={!chatInput.trim()}
-                    onClick={handleSend}
-                  >
-                    <IconSend />
-                  </button>
-                </div>
-              </div>
+        {isTyping && (
+          <div className="s-typing-indicator" role="status" aria-label="AI is typing">
+            <div className="s-typing-dots" aria-hidden="true">
+              <div className="s-typing-dot" />
+              <div className="s-typing-dot" />
+              <div className="s-typing-dot" />
             </div>
-
-            {/* Keyboard hint */}
-            <div className="s-kb-hint" id="input-hint">
-              <kbd>⌘</kbd>
-              <span className="s-hint-sep">+</span>
-              <kbd>↵</kbd>
-              <span className="s-hint-action">to send</span>
-              <span className="s-hint-sep">·</span>
-              <kbd>⌘</kbd>
-              <span className="s-hint-sep">+</span>
-              <kbd>K</kbd>
-              <span className="s-hint-action">for commands</span>
-            </div>
+            <span className="s-typing-text">{AGENT_NAME} is thinking...</span>
           </div>
-        </aside>
+        )}
       </div>
-    </div>
+
+      <div className="s-input-zone" role="form" aria-label="Message input">
+        {messages.some((m) => m.files) && (
+          <div className="s-context-chips" role="group" aria-label="Context attachments">
+            {messages
+              .filter((m) => m.files)
+              .flatMap((m) => m.files || [])
+              .slice(-3)
+              .map((file) => (
+                <button key={file.name} className="s-ctx-chip s-active" role="button">
+                  <IconFilePlus />
+                  {file.name}
+                </button>
+              ))}
+          </div>
+        )}
+
+        <div className="s-input-box">
+          <textarea
+            ref={chatInputRef}
+            value={chatInput}
+            onChange={(e) => onChatInputEv(e.target.value)}
+            onKeyDown={onKeyDownInput}
+            placeholder={`Tell ${AGENT_NAME} what to build...`}
+            rows={1}
+            autoComplete="off"
+            spellCheck="false"
+            aria-label="Message input"
+          />
+          <div className="s-input-actions">
+            <div className="s-input-actions-left">
+              <button className="s-ia-btn" aria-label="Attach file" onClick={() => showToast("File picker opened", "info")}>
+                <IconAttach />
+                <span className="s-ia-tooltip">Attach file</span>
+              </button>
+              <button className="s-ia-btn" aria-label="Screenshot" onClick={() => showToast("Screenshot captured", "success")}>
+                <IconImage />
+                <span className="s-ia-tooltip">Screenshot</span>
+              </button>
+              <div className="s-input-divider" aria-hidden="true" />
+              <button className="s-model-pill" aria-label="Switch AI model">
+                <span className="s-model-indicator" aria-hidden="true" />
+                {MODEL_NAME}
+                <IconChevronDown />
+              </button>
+            </div>
+            <div className="s-input-actions-right">
+              <button className="s-ia-btn" aria-label="Insert template" onClick={() => showToast("Template gallery opened", "info")}>
+                <IconTemplate />
+                <span className="s-ia-tooltip">Template</span>
+              </button>
+              <button
+                className="s-send-btn"
+                aria-label="Send message"
+                disabled={!chatInput.trim()}
+                onClick={handleSend}
+              >
+                <IconSend />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="s-kb-hint" id="input-hint">
+          <kbd>⌘</kbd>
+          <span className="s-hint-sep">+</span>
+          <kbd>↵</kbd>
+          <span className="s-hint-action">to send</span>
+          <span className="s-hint-sep">·</span>
+          <kbd>⌘</kbd>
+          <span className="s-hint-sep">+</span>
+          <kbd>K</kbd>
+          <span className="s-hint-action">for commands</span>
+        </div>
+      </div>
+    </aside>
   );
 }
 
