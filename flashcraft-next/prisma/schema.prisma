@@ -1,0 +1,107 @@
+// This is your Prisma schema file.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  avatar        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions      StudioSession[]
+  deployments   Deployment[]
+  generatedCodes GeneratedCode[]
+}
+
+model StudioSession {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  prompt        String   @db.Text
+  title         String?
+
+  // Code generation state
+  generatedCode GeneratedCode?
+  previewUrl    String?
+
+  // Session state: idle, generating, running, error, complete
+  status        String   @default("idle")
+  errorMessage  String?
+
+  // WebContainer process info
+  webContainerId String?
+  port          Int?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  deployments   Deployment[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model GeneratedCode {
+  id            String   @id @default(cuid())
+  sessionId     String   @unique
+  session       StudioSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // File structure: [{ path: string, content: string, type: string }]
+  files         Json
+
+  // Build info
+  buildStatus   String?   // success, error
+  buildError    String?   @db.Text
+  buildTime     Int?      // milliseconds
+
+  // Prompt that generated this code
+  generationPrompt String? @db.Text
+
+  // Model used for generation
+  model         String    @default("claude-3-5-sonnet-20241022")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([sessionId])
+}
+
+model Deployment {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessionId     String
+  session       StudioSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  // Deployment metadata
+  liveUrl       String
+  vercelProjectId String?
+  vercelDeploymentId String?
+
+  // Deployment state: pending, building, live, failed
+  status        String   @default("pending")
+  statusMessage String?  @db.Text
+
+  createdAt     DateTime @default(now())
+  deployedAt    DateTime?
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([status])
+}
