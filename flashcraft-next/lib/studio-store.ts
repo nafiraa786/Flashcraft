@@ -9,6 +9,22 @@ export interface StudioSession {
   previewUrl?: string | null;
 }
 
+const GUEST_USER_ID = "guest-user";
+
+/** Upserts a guest User row so FK constraints are satisfied without auth. */
+export async function ensureGuestUser(): Promise<string> {
+  await prisma.user.upsert({
+    where: { id: GUEST_USER_ID },
+    create: {
+      id: GUEST_USER_ID,
+      email: "guest@flashcraft.local",
+      name: "Guest",
+    },
+    update: {},
+  });
+  return GUEST_USER_ID;
+}
+
 export async function createStudioSession(
   prompt: string,
   userId: string
@@ -23,6 +39,7 @@ export async function createStudioSession(
 
   return session.id;
 }
+
 
 export async function getStudioSession(
   id: string

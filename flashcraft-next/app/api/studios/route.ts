@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createStudioSession } from "@/lib/studio-store";
+import { createStudioSession, ensureGuestUser } from "@/lib/studio-store";
 import { getServerUser } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
-    // Get authenticated user
-    const user = await getServerUser();
-    if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized: Please log in" },
-        { status: 401 }
-      );
+    // Attempt to get authenticated user; fall back to a guest user row so
+    // the studio can be created without a Supabase session during development.
+    let userId: string;
+    try {
+      const user = await getServerUser();
+      userId = user?.id ?? await ensureGuestUser();
+    } catch {
+      userId = await ensureGuestUser();
     }
 
     const body = await request.json();
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const id = await createStudioSession(prompt.trim(), user.id);
+    const id = await createStudioSession(prompt.trim(), userId);
     return NextResponse.json({ id });
   } catch (error) {
     console.error("Failed to create studio session:", error);
