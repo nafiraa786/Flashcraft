@@ -415,7 +415,24 @@ function formatTime() {
   });
 }
 
-let nextId = 1;
+const AGENT_NAME = "FlashCraft";
+const MODEL_NAME = "gemini-2.5";
+
+// Device sizes
+const deviceSizes: Record<string, string> = {
+  desktop: "1280×720",
+  tablet: "768×1024",
+  mobile: "375×667",
+};
+
+// Command palette items
+const commands = [
+  { action: "deploy", name: "Deploy Project", desc: "Build and deploy to production", shortcut: "⌘⇧D", section: "Actions" },
+  { action: "preview", name: "Toggle Preview", desc: "Switch between preview and code", shortcut: "⌘⇧P", section: "Actions" },
+  { action: "chat", name: "New Chat", desc: "Start a new conversation", shortcut: "⌘⇧N", section: "Actions" },
+  { action: "theme", name: "Toggle Theme", desc: "Switch between light and dark", shortcut: "⌘⇧T", section: "Settings" },
+  { action: "settings", name: "Open Settings", desc: "Configure workspace preferences", shortcut: "⌘,", section: "Settings" },
+];
 
 // ═══════════════════════════════════════════
 // MAIN WORKSPACE COMPONENT
@@ -428,6 +445,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [mode, setModeState] = useState<"preview" | "code" | "files">("preview");
   const [activeTree, setActiveTreeState] = useState("Explorer");
   const [activePreviewTab, setActivePreviewTab] = useState("Home");
@@ -435,11 +453,12 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
   const [activeTool, setActiveTool] = useState("Cursor");
   const [visualEdit, setVisualEdit] = useState(false);
   const [chatInput, setChatInput] = useState("");
+  const idRef = useRef(1);
   const [messages, setMessages] = useState<Message[]>(() => {
     if (!initialPrompt) return [];
     return [
       {
-        id: nextId++,
+        id: idRef.current++,
         role: "user",
         content: initialPrompt,
         time: formatTime(),
@@ -462,7 +481,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
 
   // ─── TOAST SYSTEM ───
   const showToast = useCallback((message: string, type: Toast["type"] = "info") => {
-    const id = nextId++;
+    const id = idRef.current++;
     setToasts((prev) => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -476,7 +495,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
       const timer = setTimeout(() => {
         setIsTyping(false);
         const aiMsg: Message = {
-          id: nextId++,
+          id: idRef.current++,
           role: "ai",
           content: `I'll build this for you. Let me analyze your requirements and generate the necessary components.`,
           time: formatTime(),
@@ -569,7 +588,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     if (!val) return;
 
     const userMsg: Message = {
-      id: nextId++,
+      id: idRef.current++,
       role: "user",
       content: val,
       time: formatTime(),
@@ -581,7 +600,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     setTimeout(() => {
       setIsTyping(false);
       const aiMsg: Message = {
-        id: nextId++,
+        id: idRef.current++,
         role: "ai",
         content: `I've processed your request: "${val}". I'll generate the necessary components and update the preview.`,
         time: formatTime(),
@@ -599,22 +618,6 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
   }, [panelWidth]);
-
-  // Device sizes
-  const deviceSizes: Record<string, string> = {
-    desktop: "1280×720",
-    tablet: "768×1024",
-    mobile: "375×667",
-  };
-
-  // Command palette items
-  const commands = [
-    { action: "deploy", name: "Deploy Project", desc: "Build and deploy to production", shortcut: "⌘⇧D", section: "Actions" },
-    { action: "preview", name: "Toggle Preview", desc: "Switch between preview and code", shortcut: "⌘⇧P", section: "Actions" },
-    { action: "chat", name: "New Chat", desc: "Start a new conversation", shortcut: "⌘⇧N", section: "Actions" },
-    { action: "theme", name: "Toggle Theme", desc: "Switch between light and dark", shortcut: "⌘⇧T", section: "Settings" },
-    { action: "settings", name: "Open Settings", desc: "Configure workspace preferences", shortcut: "⌘,", section: "Settings" },
-  ];
 
   const filteredCommands = commands.filter(
     (cmd) =>
@@ -672,8 +675,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cmdOpen, chatInput]);
+  }, [cmdOpen, chatInput, handleSend, toggleTheme]);
 
   // Derive project name from prompt
   const projectName = initialPrompt
@@ -720,7 +722,26 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
               className="s-cmd-input"
               placeholder="Search commands..."
               value={cmdQuery}
-              onChange={(e) => setCmdQuery(e.target.value)}
+              onChange={(e) => {
+                setCmdQuery(e.target.value);
+                setSelectedIndex(0);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  if (filteredCommands.length > 0) {
+                    setSelectedIndex((prev) => (prev + 1) % filteredCommands.length);
+                  }
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  if (filteredCommands.length > 0) {
+                    setSelectedIndex((prev) => (prev - 1 + filteredCommands.length) % filteredCommands.length);
+                  }
+                } else if (e.key === "Enter" && filteredCommands.length > 0) {
+                  e.preventDefault();
+                  handleCommand(filteredCommands[selectedIndex].action);
+                }
+              }}
               autoComplete="off"
               spellCheck="false"
             />
@@ -732,10 +753,12 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
             return (
               <div className="s-cmd-section" key={section}>
                 <div className="s-cmd-section-label">{section}</div>
-                {items.map((cmd) => (
+                {items.map((cmd) => {
+                  const globalIndex = filteredCommands.findIndex(c => c.action === cmd.action);
+                  return (
                   <div
                     key={cmd.action}
-                    className="s-cmd-item"
+                    className={`s-cmd-item ${globalIndex === selectedIndex ? "s-selected" : ""}`}
                     onClick={() => handleCommand(cmd.action)}
                   >
                     <div className="s-cmd-item-icon">
@@ -751,7 +774,8 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
                     </div>
                     <span className="s-cmd-item-shortcut">{cmd.shortcut}</span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             );
           })}
@@ -1116,8 +1140,8 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
                       <div className="s-ai-avatar" aria-hidden="true">
                         <IconStar />
                       </div>
-                      <span className="s-ai-name">FlashCraft</span>
-                      <span className="s-ai-model">gemini-2.5</span>
+                      <span className="s-ai-name">{AGENT_NAME}</span>
+                      <span className="s-ai-model">{MODEL_NAME}</span>
                       <span className="s-ai-time">{msg.time}</span>
                     </div>
 
@@ -1150,7 +1174,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
                           </div>
                         </div>
                         <span className="s-file-diff-badge">+{file.additions}</span>
-                        {file.deletions && <span className="s-file-diff-badge s-negative">-{file.deletions}</span>}
+                        {!!file.deletions && <span className="s-file-diff-badge s-negative">-{file.deletions}</span>}
                         <svg className="s-file-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
                       </div>
                     ))}
@@ -1191,7 +1215,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
                   <div className="s-typing-dot" />
                   <div className="s-typing-dot" />
                 </div>
-                <span className="s-typing-text">FlashCraft is thinking...</span>
+                <span className="s-typing-text">{AGENT_NAME} is thinking...</span>
               </div>
             )}
           </div>
@@ -1226,7 +1250,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
                     handleSend();
                   }
                 }}
-                placeholder="Tell FlashCraft what to build..."
+                placeholder={`Tell ${AGENT_NAME} what to build...`}
                 rows={1}
                 autoComplete="off"
                 spellCheck="false"
@@ -1245,7 +1269,7 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
                   <div className="s-input-divider" aria-hidden="true" />
                   <button className="s-model-pill" aria-label="Switch AI model">
                     <span className="s-model-indicator" aria-hidden="true" />
-                    gemini-2.5
+                    {MODEL_NAME}
                     <IconChevronDown />
                   </button>
                 </div>
