@@ -449,7 +449,7 @@ function formatTime() {
 // ═══════════════════════════════════════════
 // MAIN WORKSPACE COMPONENT
 // ═══════════════════════════════════════════
-export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt: string }) {
+export default function StudioWorkspaceClient({ sessionId, initialPrompt }: { sessionId: string; initialPrompt: string }) {
   // ─── WEBCONTAINER ───
   const { isBooted, url, logs } = useWebContainer();
 
@@ -504,41 +504,110 @@ export default function StudioWorkspaceClient({ initialPrompt }: { initialPrompt
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // ─── INITIAL PROMPT ───
+  // ─── INITIAL PROMPT & CODE GENERATION ───
   useEffect(() => {
-    if (initialPrompt) {
-      const timer = setTimeout(() => {
-        setIsTyping(false);
-        const aiMsg: Message = {
-          id: idRef.current++,
-          role: "ai",
-          content: `I'll build this for you. Let me analyze your requirements and generate the necessary components.`,
-          time: formatTime(),
-          thought: {
-            label: "Analyzing requirements",
-            duration: "1.2s",
-            items: [
-              "Identified key sections and features",
-              "Selected modern design patterns with glassmorphism",
-              "Planning responsive breakpoints: mobile, tablet, desktop",
-              "Preparing component structure with React + Tailwind",
-            ],
-          },
-          files: [
-            { name: "page.tsx", type: "ts", status: "new", additions: 142, path: "src/app" },
-            { name: "components.tsx", type: "ts", status: "new", additions: 89, path: "src/components" },
-            { name: "globals.css", type: "css", status: "modified", additions: 45, deletions: 12, path: "src/styles" },
-          ],
-          buildStatus: "Build successful — 3 files changed, 276 additions",
-        };
-        setMessages((prev) => [...prev, aiMsg]);
-        showToast("Build completed successfully", "success");
-      }, 2500);
-      return () => clearTimeout(timer);
+    if (initialPrompt && messages.length === 0) {
+      // Add initial user message
+      const userMsg: Message = {
+        id: idRef.current++,
+        role: "user",
+        content: initialPrompt,
+        time: formatTime(),
+      };
+      setMessages([userMsg]);
+      setIsTyping(true);
+
+      // Trigger code generation and build
+      generateCodeAndBuild(initialPrompt);
     }
-  // Only run once on mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
+
+  const generateCodeAndBuild = async (prompt: string) => {
+    try {
+      // Step 1: Generate code
+      showToast("Generating code...", "info");
+      const genRes = await fetch(`/api/generate?sessionId=${sessionId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+
+      if (!genRes.ok) {
+        const error = await genRes.json();
+        throw new Error(error.error || "Failed to generate code");
+      }
+
+      const generated = await genRes.json();
+      showToast("Code generated successfully!", "success");
+
+      // Add AI response with generated files
+      const aiMsg: Message = {
+        id: idRef.current++,
+        role: "ai",
+        content: `I'll build this for you. Generated ${generated.files.length} files and mounting to your environment...`,
+        time: formatTime(),
+        thought: {
+          label: "Analyzing requirements",
+          duration: "1.2s",
+          items: [
+            `Generated ${generated.files.length} React/TypeScript files`,
+            "Selected modern design patterns with Tailwind CSS",
+            "Planning responsive breakpoints: mobile, tablet, desktop",
+            "Setting up component structure with React 18 hooks",
+          ],
+        },
+        files: generated.files.map((f: any) => ({
+          name: f.path.split("/").pop(),
+          type: f.type,
+          status: "new",
+          additions: f.content.split("\n").length,
+          path: f.path,
+        })),
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+
+      // Step 2: Build (mount to WebContainer and start dev server)
+      showToast("Building project...", "info");
+      const buildRes = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (!buildRes.ok) {
+        const error = await buildRes.json();
+        throw new Error(error.error || "Failed to build project");
+      }
+
+      const buildData = await buildRes.json();
+
+      // Update AI message with build status
+      const buildStatusMsg: Message = {
+        id: idRef.current++,
+        role: "ai",
+        content: `Build complete! Your app is now live. You can edit the code on the left and I'll help you refine it.`,
+        time: formatTime(),
+        buildStatus: `✅ Build successful — mounted to WebContainer and dev server running`,
+      };
+      setMessages((prev) => [...prev, buildStatusMsg]);
+      showToast("Build complete! Preview ready.", "success");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Unknown error";
+      showToast(`Error: ${errorMsg}`, "error");
+      setIsTyping(false);
+
+      const errorAiMsg: Message = {
+        id: idRef.current++,
+        role: "ai",
+        content: `I encountered an error during generation: ${errorMsg}. Please try modifying your prompt or contact support.`,
+        time: formatTime(),
+      };
+      setMessages((prev) => [...prev, errorAiMsg]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
 
   // ─── SCROLL CHAT ───
   useEffect(() => {

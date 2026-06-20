@@ -14,5 +14,5 @@ export default async function StudioPage({ params }: PageProps) {
     notFound();
   }
 
-  return <StudioWorkspaceClient initialPrompt={session.prompt} />;
+  return <StudioWorkspaceClient sessionId={id} initialPrompt={session.prompt} />;
 }
